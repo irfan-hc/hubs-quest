@@ -62,6 +62,17 @@ export function VisualizationPanel({
 
   const [currentZoom, setCurrentZoom] = useState<number>(1.0);
   const [isGrowthActive, setIsGrowthActive] = useState<boolean>(true);
+  // Preserve the last preset's visual palette when sliders/tempo switch activePresetId to "custom"
+  const lastPresetThemeRef = useRef<CanvasTheme>(getCanvasTheme(activePresetId));
+
+  const resolvedTheme: CanvasTheme =
+    activePresetId && activePresetId !== "custom"
+      ? getCanvasTheme(activePresetId)
+      : lastPresetThemeRef.current;
+
+  if (activePresetId && activePresetId !== "custom") {
+    lastPresetThemeRef.current = getCanvasTheme(activePresetId);
+  }
 
   // Initialize CanvasTreeRenderer
   useEffect(() => {
@@ -81,7 +92,7 @@ export function VisualizationPanel({
     rendererRef.current = renderer;
 
     // Apply initial theme
-    renderer.setTheme(getCanvasTheme(activePresetId));
+    renderer.setTheme(resolvedTheme);
 
     if (result) {
       setIsGrowthActive(true);
@@ -118,12 +129,12 @@ export function VisualizationPanel({
     }
   }, [activeBranchIds]);
 
-  // Update canvas theme when preset changes
+  // Update canvas theme when preset changes (preserving last preset palette during "custom" tuning)
   useEffect(() => {
     if (rendererRef.current) {
-      rendererRef.current.setTheme(getCanvasTheme(activePresetId));
+      rendererRef.current.setTheme(resolvedTheme);
     }
-  }, [activePresetId]);
+  }, [resolvedTheme]);
 
   const handleReplayClick = () => {
     if (rendererRef.current && result) {
@@ -160,29 +171,29 @@ export function VisualizationPanel({
   return (
     <section
       aria-label="Cosmic Tree Installation Viewport"
-      className="relative flex flex-col w-full lg:h-full min-h-0 rounded-2xl border border-orange-500/20 bg-[#0A0B10]/95 backdrop-blur-md p-2.5 sm:p-3 shadow-[0_10px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+      className="relative flex flex-col w-full lg:h-full min-h-0 rounded-2xl border border-[#D49572]/25 bg-[#1A0F15]/95 backdrop-blur-md p-2.5 sm:p-3 shadow-[0_10px_40px_rgba(0,0,0,0.6)] overflow-hidden"
     >
       {/* Top Studio Control Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 shrink-0 border-b border-white/10">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 shrink-0 border-b border-[#D49572]/15">
         <div className="flex items-center space-x-2.5">
           <div
             className={`w-2.5 h-2.5 rounded-full ${
               activeCount > 0
                 ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,1.0)] animate-ping"
                 : isPlaying
-                ? "bg-[#FF7A1A] shadow-[0_0_8px_rgba(255,122,26,0.9)] animate-pulse"
+                ? "bg-[#D49572] shadow-[0_0_8px_rgba(212,149,114,0.9)] animate-pulse"
                 : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]"
             }`}
             aria-hidden="true"
           />
           <div>
-            <h2 className="text-sm font-medium tracking-tight text-slate-100 flex items-center space-x-2">
+            <h2 className="text-sm font-medium tracking-tight text-[#F7EDE6] flex items-center space-x-2">
               <span>{visualTitle}</span>
               <span
                 className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                   activeCount > 0 || isPlaying
                     ? "bg-emerald-950/70 text-emerald-300 border-emerald-500/40"
-                    : "bg-[#14151D] text-orange-300 border-orange-500/30"
+                    : "bg-[#26161D] text-[#E8B89A] border-[#D49572]/35"
                 }`}
               >
                 {activeCount > 0 ? `Sounding (${activeCount})` : isPlaying ? "Playing" : "Settled"}
@@ -194,72 +205,104 @@ export function VisualizationPanel({
         {/* Telemetry HUD & Studio Actions */}
         <div className="flex items-center space-x-2.5 text-xs">
           {/* Generation Statistics Badge */}
-          <div className="hidden sm:flex items-center space-x-2 text-slate-400 font-mono text-[11px] bg-[#0D0E14] px-3 py-1.5 rounded-lg border border-white/10 shadow-inner">
+          <div className="hidden sm:flex items-center space-x-2 text-[#E6CFC2] font-mono text-[11px] bg-[#22131A] px-3 py-1.5 rounded-lg border border-[#D49572]/20 shadow-inner">
             <span>Branches:</span>
-            <span className="text-orange-300 font-semibold">{result.totalBranches}</span>
-            <span className="text-slate-700">|</span>
+            <span className="text-[#E8B89A] font-semibold">{result.totalBranches}</span>
+            <span className="text-[#6E4755]">|</span>
             <span>Depth:</span>
-            <span className="text-slate-200 font-semibold">{result.maxDepthReached}</span>
-            <span className="text-slate-700">|</span>
+            <span className="text-[#F7EDE6] font-semibold">{result.maxDepthReached}</span>
+            <span className="text-[#6E4755]">|</span>
             <span>Stellar Nodes:</span>
             <span className="text-emerald-300 font-semibold">{terminalCount}</span>
           </div>
 
           {/* Camera Zoom Controls */}
-          <div className="flex items-center space-x-1 bg-[#0D0E14] p-0.5 rounded-lg border border-white/10">
-            <button
-              type="button"
-              onClick={handleZoomOut}
-              aria-label="Zoom Out Camera"
-              title="Zoom Out Camera"
-              className="p-1.5 rounded text-slate-400 hover:text-orange-300 hover:bg-white/5 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <span className="px-1.5 font-mono text-[10px] text-slate-300">
+          <div className="flex items-center space-x-1 bg-black p-0.5 rounded-lg border border-white/55 shadow-inner">
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                aria-label="Zoom Out Camera"
+                title="Zoom out of the simulation canvas"
+                className="p-1.5 rounded text-white hover:bg-neutral-800 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              <span
+                role="tooltip"
+                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-9 z-50 whitespace-nowrap rounded-md bg-black border border-white/60 px-2 py-1 text-[11px] text-white shadow-lg"
+              >
+                Zoom out
+              </span>
+            </div>
+            <span className="px-1.5 font-mono text-[11px] text-white">
               {currentZoom.toFixed(2)}x
             </span>
-            <button
-              type="button"
-              onClick={handleZoomIn}
-              aria-label="Zoom In Camera"
-              title="Zoom In Camera"
-              className="p-1.5 rounded text-slate-400 hover:text-orange-300 hover:bg-white/5 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={handleResetCamera}
-              aria-label="Reset Camera View"
-              title="Reset Camera Framing"
-              className="px-2 py-1 rounded text-[11px] font-mono text-slate-300 hover:text-orange-300 hover:bg-white/5 transition-colors border-l border-white/10"
-            >
-              Reset View
-            </button>
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                aria-label="Zoom In Camera"
+                title="Zoom in closer to the simulation"
+                className="p-1.5 rounded text-white hover:bg-neutral-800 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              <span
+                role="tooltip"
+                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-9 z-50 whitespace-nowrap rounded-md bg-black border border-white/60 px-2 py-1 text-[11px] text-white shadow-lg"
+              >
+                Zoom in
+              </span>
+            </div>
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={handleResetCamera}
+                aria-label="Reset Camera View"
+                title="Restore default camera framing and zoom"
+                className="px-2 py-1 rounded text-xs font-mono text-white hover:bg-neutral-800 transition-colors border-l border-white/45"
+              >
+                Reset View
+              </button>
+              <span
+                role="tooltip"
+                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-9 z-50 whitespace-nowrap rounded-md bg-black border border-white/60 px-2 py-1 text-[11px] text-white shadow-lg"
+              >
+                Restore default framing
+              </span>
+            </div>
           </div>
 
           {/* Replay Growth Button */}
-          <button
-            type="button"
-            onClick={handleReplayClick}
-            aria-label="Replay Tree Growth Animation"
-            title="Replay Progressive Growth from Root"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#19120D] hover:bg-[#241810] border border-orange-500/40 text-orange-200 text-xs font-medium transition-all active:scale-95"
-          >
-            <svg
-              className="w-3.5 h-3.5 text-[#FF7A1A] fill-current"
-              viewBox="0 0 24 24"
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={handleReplayClick}
+              aria-label="Replay Tree Growth Animation"
+              title="Replay progressive formation from the center"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-black hover:bg-neutral-900 border border-white/60 hover:border-white text-white text-[13px] font-medium transition-all active:scale-95"
             >
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            <span>Replay</span>
-          </button>
+              <svg
+                className="w-3.5 h-3.5 text-white fill-current"
+                viewBox="0 0 24 24"
+              >
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <span>Replay</span>
+            </button>
+            <span
+              role="tooltip"
+              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute right-0 top-9 z-50 whitespace-nowrap rounded-md bg-black border border-white/60 px-2 py-1 text-[11px] text-white shadow-lg"
+            >
+              Replay formation animation
+            </span>
+          </div>
         </div>
       </div>
 

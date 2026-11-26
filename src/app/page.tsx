@@ -10,7 +10,7 @@ import { RecursionConfig } from "@/lib/recursion/types";
 import { generateRecursiveTree } from "@/lib/recursion/branchingEngine";
 import { mapRecursionToMusic } from "@/lib/audio/musicMapper";
 import { audioEngine } from "@/lib/audio/audioEngine";
-import { MusicalScale, PlaybackState } from "@/lib/audio/types";
+import { InstrumentId, InstrumentLoadState, MusicalScale, PlaybackState } from "@/lib/audio/types";
 import { PRESETS, matchActivePreset } from "@/lib/presets/presets";
 import type { PresetDefinition } from "@/lib/presets/types";
 
@@ -26,6 +26,21 @@ export default function Home() {
   const [scale, setScale] = useState<MusicalScale>(INITIAL_PRESET.audio.scale);
   const [volume, setVolume] = useState<number>(INITIAL_PRESET.audio.volume);
   const [reverb, setReverb] = useState<number>(INITIAL_PRESET.audio.reverb);
+  const [primaryInstrument, setPrimaryInstrument] = useState<InstrumentId>(
+    INITIAL_PRESET.audio.primaryInstrument
+  );
+  const [secondaryInstrument, setSecondaryInstrument] = useState<InstrumentId | null>(
+    INITIAL_PRESET.audio.secondaryInstrument
+  );
+  const [primaryVolume, setPrimaryVolume] = useState<number>(
+    INITIAL_PRESET.audio.primaryVolume
+  );
+  const [secondaryVolume, setSecondaryVolume] = useState<number>(
+    INITIAL_PRESET.audio.secondaryVolume
+  );
+  const [instrumentLoadState, setInstrumentLoadState] =
+    useState<InstrumentLoadState>("idle");
+  const [instrumentLoadMessage, setInstrumentLoadMessage] = useState<string>("");
   const [activeBranchIds, setActiveBranchIds] = useState<Set<string>>(new Set());
 
   // Dynamically tracks whether current settings match a preset or are in custom tuning
@@ -59,7 +74,33 @@ export default function Home() {
     audioEngine.setOnStateChange((state: PlaybackState) => {
       setPlaybackState(state);
     });
+
+    audioEngine.setOnInstrumentStatusChange(
+      (state: InstrumentLoadState, message: string) => {
+        setInstrumentLoadState(state);
+        setInstrumentLoadMessage(message);
+      }
+    );
   }, []);
+
+  // Instrument & Bus Volume synchronization
+  useEffect(() => {
+    if (audioEngine) {
+      audioEngine.setInstruments(primaryInstrument, secondaryInstrument);
+    }
+  }, [primaryInstrument, secondaryInstrument]);
+
+  useEffect(() => {
+    if (audioEngine) {
+      audioEngine.setPrimaryVolume(primaryVolume / 100);
+    }
+  }, [primaryVolume]);
+
+  useEffect(() => {
+    if (audioEngine) {
+      audioEngine.setSecondaryVolume(secondaryVolume / 100);
+    }
+  }, [secondaryVolume]);
 
   // Volume & Reverb synchronization
   useEffect(() => {
@@ -169,9 +210,22 @@ export default function Home() {
       setTempo(preset.audio.tempo);
       setReverb(preset.audio.reverb);
       setVolume(preset.audio.volume);
+      setPrimaryInstrument(preset.audio.primaryInstrument);
+      setSecondaryInstrument(preset.audio.secondaryInstrument);
+      setPrimaryVolume(preset.audio.primaryVolume);
+      setSecondaryVolume(preset.audio.secondaryVolume);
     },
     [playbackState]
   );
+
+  const handleResetInstruments = useCallback(() => {
+    const targetPreset =
+      activePresetId !== "custom" ? PRESETS[activePresetId] : INITIAL_PRESET;
+    setPrimaryInstrument(targetPreset.audio.primaryInstrument);
+    setSecondaryInstrument(targetPreset.audio.secondaryInstrument);
+    setPrimaryVolume(targetPreset.audio.primaryVolume);
+    setSecondaryVolume(targetPreset.audio.secondaryVolume);
+  }, [activePresetId]);
 
   const handleConfigChange = (updates: Partial<RecursionConfig>) => {
     if (audioEngine && (playbackState === "playing" || playbackState === "paused")) {
@@ -243,6 +297,17 @@ export default function Home() {
               onScaleChange={handleScaleChange}
               scaleName={composition.scaleName}
               activeVoices={composition.activeVoicesCount}
+              primaryInstrument={primaryInstrument}
+              onPrimaryInstrumentChange={setPrimaryInstrument}
+              secondaryInstrument={secondaryInstrument}
+              onSecondaryInstrumentChange={setSecondaryInstrument}
+              primaryVolume={primaryVolume}
+              onPrimaryVolumeChange={setPrimaryVolume}
+              secondaryVolume={secondaryVolume}
+              onSecondaryVolumeChange={setSecondaryVolume}
+              onResetInstruments={handleResetInstruments}
+              instrumentLoadState={instrumentLoadState}
+              instrumentLoadMessage={instrumentLoadMessage}
             />
             <ParameterPanel
               config={config}

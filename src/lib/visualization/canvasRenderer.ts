@@ -95,27 +95,27 @@ function getThemePalette(theme: CanvasTheme): ThemePalette {
 
     case "zen":
       return {
-        bgInner: "#0D1E3D",
-        bgMid: "#071229",
-        bgOuter: "#030712",
-        sunGlow: "rgba(186, 230, 253, 0.12)",
-        moteColor: "rgba(224, 242, 254,",
-        moteWarmColor: "rgba(226, 232, 240,",
-        moteDensity: 0.65,
-        orbitalColor: "rgba(186, 230, 253, 0.18)",
-        highlightStroke: "rgba(255, 255, 255, 0.98)",
-        highlightFill: "rgba(186, 230, 253, 0.28)",
-        highlightGlow: "rgba(186, 230, 253, 0.85)",
+        bgInner: "#18101C",
+        bgMid: "#0E0812",
+        bgOuter: "#070409",
+        sunGlow: "rgba(212, 149, 114, 0.14)",
+        moteColor: "rgba(186, 230, 253,",
+        moteWarmColor: "rgba(232, 184, 154,",
+        moteDensity: 0.6,
+        orbitalColor: "rgba(212, 149, 114, 0.18)",
+        highlightStroke: "rgba(253, 224, 196, 0.96)",
+        highlightFill: "rgba(212, 149, 114, 0.30)",
+        highlightGlow: "rgba(227, 169, 136, 0.85)",
         depthColor: (t, a = 1) => {
-          const cCore: [number, number, number, number] = [241, 245, 249, 0.94];
-          const cIce: [number, number, number, number] = [147, 197, 253, 0.86];
-          const cCyan: [number, number, number, number] = [186, 230, 253, 0.9];
-          const cSilver: [number, number, number, number] = [226, 232, 240, 0.92];
+          const cCore: [number, number, number, number] = [212, 149, 114, 0.92];
+          const cIce: [number, number, number, number] = [125, 211, 252, 0.85];
+          const cPlum: [number, number, number, number] = [196, 181, 253, 0.88];
+          const cRose: [number, number, number, number] = [244, 180, 198, 0.90];
           if (t < 0.33) return interpolateRGBA(cCore, cIce, t / 0.33, a);
-          if (t < 0.7) return interpolateRGBA(cIce, cCyan, (t - 0.33) / 0.37, a);
-          return interpolateRGBA(cCyan, cSilver, (t - 0.7) / 0.3, a);
+          if (t < 0.7) return interpolateRGBA(cIce, cPlum, (t - 0.33) / 0.37, a);
+          return interpolateRGBA(cPlum, cRose, (t - 0.7) / 0.3, a);
         },
-        terminalColor: (a) => `rgba(241, 245, 249, ${a.toFixed(2)})`,
+        terminalColor: (a) => `rgba(232, 184, 154, ${a.toFixed(2)})`,
       };
 
     case "dream":
@@ -275,71 +275,36 @@ export class CanvasTreeRenderer {
   }
 
   /**
-   * Maps Stage 2 BranchEvent hierarchy into radial/orbital sculpture coordinates.
-   * Preserves every BranchEvent ID, depth, parent-child link, angle, length, and order.
+   * Builds rendering nodes directly from Stage 2 BranchEvent coordinates and relationships.
+   * Preserves the exact generated topology, positions, angles, lengths, and event IDs.
    */
   private buildSculptureGeometry(result: RecursionResult): void {
     this.sculptureNodes = [];
     this.depthRadii = [];
     if (!result || result.branches.length === 0) return;
 
-    const nodeMap = new Map<string, SculptureNode>();
+    const root = result.branches[0];
+    const rx = root.start.x;
+    const ry = root.start.y;
     const depthRadiusSums = new Map<number, { sum: number; count: number }>();
 
-    // Determine symmetry fold from branchAngle (e.g., 22°..38° creates 6..10-fold radial harmony)
-    const symmetryCount = Math.max(
-      4,
-      Math.min(10, Math.round(240 / Math.max(result.config.branchAngle, 15)))
-    );
-
     for (const branch of result.branches) {
-      if (branch.depth === 0) {
-        const coreLen = branch.length * 0.25;
-        const rootNode: SculptureNode = {
-          branch,
-          px: 0,
-          py: 0,
-          cx: 0,
-          cy: -coreLen,
-          ctrlX: 0,
-          ctrlY: -coreLen * 0.5,
-          radius: coreLen,
-          angle: -Math.PI / 2,
-          segLength: coreLen,
-        };
-        nodeMap.set(branch.id, rootNode);
-        this.sculptureNodes.push(rootNode);
-        continue;
-      }
+      const px = branch.start.x - rx;
+      const py = branch.start.y - ry;
+      const cx = branch.end.x - rx;
+      const cy = branch.end.y - ry;
 
-      const parentNode = branch.parentId ? nodeMap.get(branch.parentId) : undefined;
-      const px = parentNode ? parentNode.cx : 0;
-      const py = parentNode ? parentNode.cy : 0;
-
-      // Combine actual branch.angle with radial harmonic rotation by depth & creation order
-      const radialBase =
-        ((branch.order % symmetryCount) / symmetryCount) * Math.PI * 2 - Math.PI / 2;
-      const branchDeviation = (branch.angle + Math.PI / 2) * 0.85;
-      const polarAngle =
-        branch.depth === 1
-          ? radialBase + branchDeviation * 0.35
-          : (parentNode ? parentNode.angle : radialBase) + branchDeviation * 0.72;
-
-      const stepLen = branch.length * 0.72;
-      const cx = px + Math.cos(polarAngle) * stepLen;
-      const cy = py + Math.sin(polarAngle) * stepLen;
-
-      // Curved control point perpendicular to segment, driven by branch.pan & angle
+      // Subtle perpendicular bezier control point driven by branch.pan for organic/spiral curves
       const midX = (px + cx) * 0.5;
       const midY = (py + cy) * 0.5;
-      const perpAngle = polarAngle + Math.PI / 2;
-      const curveOffset = stepLen * 0.22 * (branch.pan >= 0 ? 1 : -1);
+      const perpAngle = branch.angle + Math.PI / 2;
+      const curveOffset = branch.length * 0.16 * (branch.pan >= 0 ? 1 : -1);
       const ctrlX = midX + Math.cos(perpAngle) * curveOffset;
       const ctrlY = midY + Math.sin(perpAngle) * curveOffset;
 
       const radius = Math.hypot(cx, cy);
 
-      const node: SculptureNode = {
+      this.sculptureNodes.push({
         branch,
         px,
         py,
@@ -348,17 +313,16 @@ export class CanvasTreeRenderer {
         ctrlX,
         ctrlY,
         radius,
-        angle: polarAngle,
-        segLength: stepLen,
-      };
+        angle: branch.angle,
+        segLength: branch.length,
+      });
 
-      nodeMap.set(branch.id, node);
-      this.sculptureNodes.push(node);
-
-      const stat = depthRadiusSums.get(branch.depth) ?? { sum: 0, count: 0 };
-      stat.sum += radius;
-      stat.count += 1;
-      depthRadiusSums.set(branch.depth, stat);
+      if (branch.depth >= 1) {
+        const stat = depthRadiusSums.get(branch.depth) ?? { sum: 0, count: 0 };
+        stat.sum += radius;
+        stat.count += 1;
+        depthRadiusSums.set(branch.depth, stat);
+      }
     }
 
     for (let d = 1; d <= result.maxDepthReached; d++) {
@@ -512,39 +476,15 @@ export class CanvasTreeRenderer {
   }
 
   private calculateCameraBounds(): void {
-    if (!this.result || this.result.branches.length === 0) return;
+    if (!this.result || this.result.branches.length === 0 || this.sculptureNodes.length === 0) return;
 
     const width = this.canvas.width / this.dpr;
     const height = this.canvas.height / this.dpr;
 
-    if (this.currentTheme === "zen") {
-      // Frame the 6-fold snow crystal symmetrically around (0, 0)
-      const root = this.result.branches[0];
-      const rx = root ? root.start.x : 0;
-      const ry = root ? root.start.y : 0;
-      let maxR = 60;
-      for (const b of this.result.branches) {
-        const d1 = Math.hypot(b.start.x - rx, b.start.y - ry);
-        const d2 = Math.hypot(b.end.x - rx, b.end.y - ry);
-        maxR = Math.max(maxR, d1, d2);
-      }
-      const crystalSpan = maxR * 1.62; // 0.81 scale * 2 diameter
-      const minDim = Math.min(width, height) * 0.86;
-      this.autoScaleFull = minDim / Math.max(crystalSpan, 80);
-      this.autoOffsetXFull = width * 0.5;
-      this.autoOffsetYFull = height * 0.5;
-      this.autoScaleStart = this.autoScaleFull * 1.2;
-      this.autoOffsetXStart = width * 0.5;
-      this.autoOffsetYStart = height * 0.5;
-      return;
-    }
-
-    if (this.sculptureNodes.length === 0) return;
-
-    let minX = -30;
-    let maxX = 30;
-    let minY = -30;
-    let maxY = 30;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
 
     for (const n of this.sculptureNodes) {
       minX = Math.min(minX, n.px, n.cx, n.ctrlX);
@@ -814,9 +754,8 @@ export class CanvasTreeRenderer {
   }
 
   /**
-   * Renders the Zen Enchanted Snow Crystal Formation using the actual Stage 2 BranchEvent data.
-   * Each recursive branch arm is folded across 6 hexagonal axes (60° symmetry), preserving
-   * depth, angle, length, parent-child hierarchy, creation order, and event IDs for music sync.
+   * Renders the Zen Enchanted Snow Crystal directly from the actual Stage 2 BranchEvent coordinates.
+   * When patternType is "crystal", the 6-fold hexagonal arms are genuinely generated in the recursion data.
    */
   private drawZenSnowCrystal(
     ctx: CanvasRenderingContext2D,
@@ -830,7 +769,6 @@ export class CanvasTreeRenderer {
     const root = this.result.branches[0];
     const rx = root.start.x;
     const ry = root.start.y;
-    const crystalScale = 0.81;
 
     // Stage 1: First Frost — central hexagonal crystal seed & delicate ice plate
     const seedProgress = Math.min(1, progress * 5.5);
@@ -847,110 +785,99 @@ export class CanvasTreeRenderer {
         else ctx.lineTo(hx, hy);
       }
       ctx.closePath();
-      ctx.fillStyle = "rgba(147, 197, 253, 0.14)";
+      ctx.fillStyle = "rgba(212, 149, 114, 0.16)";
       ctx.fill();
-      ctx.strokeStyle = "rgba(226, 232, 240, 0.82)";
+      ctx.strokeStyle = "rgba(232, 184, 154, 0.82)";
       ctx.lineWidth = 1.2 / curScale;
       ctx.stroke();
 
-      // Inner luminous crystal core
       ctx.beginPath();
       ctx.arc(0, 0, (4.2 * seedEase) / curScale, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(248, 250, 252, 0.94)";
+      ctx.fillStyle = "rgba(232, 184, 154, 0.94)";
       ctx.fill();
     }
 
-    // Stages 2–5: 6-fold symmetric crystalline arms & frost plates driven by Stage 2 BranchEvents
-    for (let arm = 0; arm < 6; arm++) {
-      ctx.save();
-      ctx.rotate((arm * Math.PI) / 3);
+    // Stages 2–5: Render actual generated BranchEvent coordinates directly
+    for (const branch of this.result.branches) {
+      const depth = branch.depth;
+      if (depth === 0) continue; // seed already drawn at center
 
-      for (const branch of this.result.branches) {
-        const depth = branch.depth;
-        const levelStart = depth / totalLevels;
-        const levelEnd = (depth + 1.2) / totalLevels;
+      const levelStart = depth / totalLevels;
+      const levelEnd = (depth + 1.2) / totalLevels;
 
-        let localGrowth = 0;
-        if (progress >= 1.0 || progress >= levelEnd) {
-          localGrowth = 1.0;
-        } else if (progress <= levelStart) {
-          localGrowth = 0.0;
-        } else {
-          localGrowth = (progress - levelStart) / (levelEnd - levelStart);
-        }
-        if (localGrowth <= 0) continue;
+      let localGrowth = 0;
+      if (progress >= 1.0 || progress >= levelEnd) {
+        localGrowth = 1.0;
+      } else if (progress <= levelStart) {
+        localGrowth = 0.0;
+      } else {
+        localGrowth = (progress - levelStart) / (levelEnd - levelStart);
+      }
+      if (localGrowth <= 0) continue;
 
-        const eased = localGrowth >= 1.0 ? 1.0 : easeOutCubic(localGrowth);
+      const eased = localGrowth >= 1.0 ? 1.0 : easeOutCubic(localGrowth);
 
-        const sx = (branch.start.x - rx) * crystalScale;
-        const sy = (branch.start.y - ry) * crystalScale;
-        const ex = sx + (branch.end.x - branch.start.x) * crystalScale * eased;
-        const ey = sy + (branch.end.y - branch.start.y) * crystalScale * eased;
+      const sx = branch.start.x - rx;
+      const sy = branch.start.y - ry;
+      const ex = sx + (branch.end.x - branch.start.x) * eased;
+      const ey = sy + (branch.end.y - branch.start.y) * eased;
 
-        const isHighlighted = this.highlightedBranchIds.has(branch.id);
-        const normD = branch.normalizedDepth;
+      const isHighlighted = this.highlightedBranchIds.has(branch.id);
+      const normD = branch.normalizedDepth;
 
-        // Crystalline plate facet around each branch segment
-        const dx = ex - sx;
-        const dy = ey - sy;
-        const plateRatio = depth === 0 ? 0.09 : depth <= 2 ? 0.16 : 0.2;
-        const px = -dy * plateRatio;
-        const py = dx * plateRatio;
-        const mx = sx + dx * 0.55;
-        const my = sy + dy * 0.55;
+      const dx = ex - sx;
+      const dy = ey - sy;
+      const plateRatio = depth <= 1 ? 0.12 : depth <= 2 ? 0.16 : 0.2;
+      const px = -dy * plateRatio;
+      const py = dx * plateRatio;
+      const mx = sx + dx * 0.55;
+      const my = sy + dy * 0.55;
 
-        if (isHighlighted) {
-          ctx.shadowColor = palette.highlightGlow;
-          ctx.shadowBlur = 10 / curScale;
-        } else {
-          ctx.shadowBlur = 0;
-        }
-
-        // Translucent ice-plate body
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(mx + px, my + py);
-        ctx.lineTo(ex, ey);
-        ctx.lineTo(mx - px, my - py);
-        ctx.closePath();
-        ctx.fillStyle = isHighlighted
-          ? palette.highlightFill
-          : palette.depthColor(normD, depth === 0 ? 0.22 : 0.16);
-        ctx.fill();
-
-        // Crisp snow-white / ice-blue edge highlight
-        ctx.strokeStyle = isHighlighted
-          ? palette.highlightStroke
-          : palette.depthColor(normD, 0.78);
-        ctx.lineWidth = isHighlighted
-          ? 1.9 / curScale
-          : Math.max(0.65 / curScale, (1.5 - normD * 0.75) / curScale);
-        ctx.stroke();
-
-        // Central spine rib
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(ex, ey);
-        ctx.strokeStyle = isHighlighted
-          ? "rgba(255, 255, 255, 0.98)"
-          : "rgba(241, 245, 249, 0.55)";
-        ctx.lineWidth = Math.max(0.5 / curScale, (1.1 - normD * 0.5) / curScale);
-        ctx.stroke();
-
-        // Delicate terminal frost tip
-        if (branch.isTerminal && localGrowth > 0.75) {
-          const tipAlpha = localGrowth >= 1.0 ? 0.92 : (localGrowth - 0.75) * 3.5;
-          const rTip = (isHighlighted ? 3.2 : 1.7) / curScale;
-          ctx.beginPath();
-          ctx.arc(ex, ey, rTip, 0, Math.PI * 2);
-          ctx.fillStyle = isHighlighted
-            ? "rgba(255, 255, 255, 0.98)"
-            : palette.terminalColor(tipAlpha);
-          ctx.fill();
-        }
+      if (isHighlighted) {
+        ctx.shadowColor = palette.highlightGlow;
+        ctx.shadowBlur = 10 / curScale;
+      } else {
+        ctx.shadowBlur = 0;
       }
 
-      ctx.restore();
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(mx + px, my + py);
+      ctx.lineTo(ex, ey);
+      ctx.lineTo(mx - px, my - py);
+      ctx.closePath();
+      ctx.fillStyle = isHighlighted
+        ? palette.highlightFill
+        : palette.depthColor(normD, depth <= 1 ? 0.22 : 0.16);
+      ctx.fill();
+
+      ctx.strokeStyle = isHighlighted
+        ? palette.highlightStroke
+        : palette.depthColor(normD, 0.78);
+      ctx.lineWidth = isHighlighted
+        ? 1.9 / curScale
+        : Math.max(0.65 / curScale, (1.5 - normD * 0.75) / curScale);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = isHighlighted
+        ? "rgba(253, 224, 196, 0.98)"
+        : "rgba(212, 149, 114, 0.45)";
+      ctx.lineWidth = Math.max(0.5 / curScale, (1.1 - normD * 0.5) / curScale);
+      ctx.stroke();
+
+      if (branch.isTerminal && localGrowth > 0.75) {
+        const tipAlpha = localGrowth >= 1.0 ? 0.92 : (localGrowth - 0.75) * 3.5;
+        const rTip = (isHighlighted ? 3.2 : 1.7) / curScale;
+        ctx.beginPath();
+        ctx.arc(ex, ey, rTip, 0, Math.PI * 2);
+        ctx.fillStyle = isHighlighted
+          ? "rgba(255, 255, 255, 0.98)"
+          : palette.terminalColor(tipAlpha);
+        ctx.fill();
+      }
     }
     ctx.shadowBlur = 0;
   }

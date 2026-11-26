@@ -1,4 +1,5 @@
-import type { Composition, MusicalEvent } from "./types";
+import type { Soundfont as SoundfontType } from "smplr";
+import type { Composition, InstrumentId, MusicalEvent } from "./types";
 
 export interface WavMetadata {
   chunkId: string;
@@ -25,6 +26,10 @@ export interface WavExportOptions {
   volume?: number; // 0.0 to 1.0 (default: 0.8)
   reverb?: number; // 0.0 to 1.0 (default: 0.65)
   filename?: string; // default: "recursive-soundscapes.wav"
+  primaryInstrument?: InstrumentId;
+  secondaryInstrument?: InstrumentId | null;
+  primaryVolume?: number; // 0.0 to 1.0 (default: 0.85)
+  secondaryVolume?: number; // 0.0 to 1.0 (default: 0.65)
 }
 
 export interface WavExportResult {
@@ -202,6 +207,10 @@ function renderProceduralOffline(
   const sampleRate = options.sampleRate || 44100;
   const volume = Math.max(0, Math.min(1, options.volume ?? 0.8));
   const reverb = Math.max(0, Math.min(1, options.reverb ?? 0.65));
+  const primaryVol = Math.max(0, Math.min(1, options.primaryVolume ?? 0.85));
+  const secondaryVol = Math.max(0, Math.min(1, options.secondaryVolume ?? 0.65));
+  const secondaryInst =
+    options.secondaryInstrument === undefined ? "celesta" : options.secondaryInstrument;
 
   // Add tail for reverb decay
   const durationSec = composition.totalDuration + 1.2;
@@ -220,14 +229,20 @@ function renderProceduralOffline(
 
   // Synthesize each musical event
   for (const evt of composition.events) {
+    const role = evt.role ?? "primary";
+    if (role === "secondary" && secondaryInst === null) {
+      continue;
+    }
+    const roleGain = role === "secondary" ? secondaryVol : primaryVol;
+
     const startFrame = Math.floor(evt.startTime * sampleRate);
     const eventFrames = Math.floor(Math.max(0.2, evt.duration) * sampleRate);
     const endFrame = Math.min(totalFrames, startFrame + eventFrames);
 
     // Constant-power stereo panning
     const panNorm = (evt.pan + 1) * 0.5;
-    const gainL = Math.cos(panNorm * Math.PI * 0.5);
-    const gainR = Math.sin(panNorm * Math.PI * 0.5);
+    const gainL = Math.cos(panNorm * Math.PI * 0.5) * roleGain;
+    const gainR = Math.sin(panNorm * Math.PI * 0.5) * roleGain;
 
     const freq = evt.frequency;
     const voice = evt.voice;
@@ -253,7 +268,7 @@ function renderProceduralOffline(
           osc2 * (0.22 + vel * 0.14) * harmDecay +
           osc3 * (0.04 + vel * 0.08) * harmDecay * harmDecay;
 
-        sample = wave * attackEnv * vel * 0.54 * bodyDecay;
+        sample = wave * attackEnv * vel * 0.65 * bodyDecay;
       } else if (voice === "pad") {
         // Warm detuned sine + soft triangle blend
         const osc1 = Math.sin(2 * Math.PI * freq * t);
@@ -334,7 +349,12 @@ async function renderBrowserOffline(
   const sampleRate = options.sampleRate || 44100;
   const volume = Math.max(0, Math.min(1, options.volume ?? 0.8));
   const reverb = Math.max(0, Math.min(1, options.reverb ?? 0.65));
-  const durationSec = composition.totalDuration + 1.2;
+  const primaryId: InstrumentId = options.primaryInstrument ?? "piano";
+  const secondaryId: InstrumentId | null =
+    options.secondaryInstrument === undefined ? "celesta" : options.secondaryInstrument;
+  const primaryVol = Math.max(0, Math.min(1, options.primaryVolume ?? 0.85));
+  const secondaryVol = Math.max(0, Math.min(1, options.secondaryVolume ?? 0.65));
+  const durationSec = composition.totalDuration + 1.4;
   const totalFrames = Math.ceil(durationSec * sampleRate);
 
   const OfflineCtxClass =
@@ -358,7 +378,7 @@ async function renderBrowserOffline(
   // 2. Master Warmth Lowpass Filter
   const warmthFilter = ctx.createBiquadFilter();
   warmthFilter.type = "lowpass";
-  warmthFilter.frequency.setValueAtTime(3600, 0);
+  warmthFilter.frequency.setValueAtTime(4800, 0);
   warmthFilter.Q.setValueAtTime(0.5, 0);
   warmthFilter.connect(limiter);
 
@@ -372,14 +392,14 @@ async function renderBrowserOffline(
   delayNode.delayTime.setValueAtTime(0.42, 0);
 
   const delayFeedback = ctx.createGain();
-  delayFeedback.gain.setValueAtTime(0.35, 0);
+  delayFeedback.gain.setValueAtTime(0.32, 0);
 
   const delayFilter = ctx.createBiquadFilter();
   delayFilter.type = "lowpass";
-  delayFilter.frequency.setValueAtTime(1150, 0);
+  delayFilter.frequency.setValueAtTime(1350, 0);
 
   const wetGain = ctx.createGain();
-  wetGain.gain.setValueAtTime(reverb * 0.42, 0);
+  wetGain.gain.setValueAtTime(reverb * 0.4, 0);
 
   delayNode.connect(delayFilter);
   delayFilter.connect(delayFeedback);
@@ -387,19 +407,98 @@ async function renderBrowserOffline(
   delayFilter.connect(wetGain);
   wetGain.connect(masterGain);
 
-  // 4. Synthesize all events
+  // 5. Primary & Secondary Instrument Buses
+  const primaryBus = ctx.createGain();
+  primaryBus.gain.setValueAtTime(primaryVol, 0);
+  primaryBus.connect(masterGain);
+  primaryBus.connect(delayNode);
+
+  const secondaryBus = ctx.createGain();
+  secondaryBus.gain.setValueAtTime(secondaryVol, 0);
+  secondaryBus.connect(masterGain);
+  secondaryBus.connect(delayNode);
+
+  // 6. Load & schedule real Soundfont sampled instruments into OfflineAudioContext
+  const { CacheStorage, Soundfont } = await import("smplr");
+  const { INSTRUMENT_CATALOG } = await import("./instruments");
+
+  let storage: ReturnType<typeof CacheStorage> | undefined;
+  try {
+    storage = CacheStorage("recursive-soundscapes-sf");
+  } catch {}
+
+  const pDef = INSTRUMENT_CATALOG[primaryId];
+  const primarySampler = new Soundfont(ctx, {
+    instrument: pDef.soundfontName,
+    kit: pDef.kit,
+    destination: primaryBus,
+    volume: 100,
+    ...(storage ? { storage } : {}),
+  });
+
+  let secondarySampler: SoundfontType | null = null;
+  if (secondaryId !== null) {
+    const sDef = INSTRUMENT_CATALOG[secondaryId];
+    secondarySampler = new Soundfont(ctx, {
+      instrument: sDef.soundfontName,
+      kit: sDef.kit,
+      destination: secondaryBus,
+      volume: 100,
+      ...(storage ? { storage } : {}),
+    });
+  }
+
+  let samplesLoaded = false;
+  try {
+    await Promise.all([
+      primarySampler.load,
+      secondarySampler ? secondarySampler.load : Promise.resolve(),
+    ]);
+    samplesLoaded = true;
+  } catch (err) {
+    console.warn("Offline Soundfont load failed, using fallback synth:", err);
+  }
+
+  if (samplesLoaded) {
+    for (const evt of composition.events) {
+      const role = evt.role ?? "primary";
+      if (role === "secondary" && secondaryId === null) continue;
+      const sampler = role === "secondary" ? secondarySampler : primarySampler;
+      if (!sampler) continue;
+
+      const midiVelocity = Math.max(12, Math.min(120, Math.round(evt.velocity * 115)));
+      sampler.start({
+        note: evt.pitch,
+        velocity: midiVelocity,
+        time: evt.startTime,
+        duration: Math.max(0.4, evt.duration),
+      });
+    }
+
+    const renderedBuffer = await ctx.startRendering();
+    return {
+      left: renderedBuffer.getChannelData(0),
+      right: renderedBuffer.getChannelData(1),
+      sampleRate,
+      durationSec,
+    };
+  }
+
+  // Fallback: built-in Web Audio synthesis if offline Soundfont loading failed
   for (const evt of composition.events) {
+    const role = evt.role ?? "primary";
+    if (role === "secondary" && secondaryId === null) continue;
     const t = evt.startTime;
+    const targetBus = role === "secondary" ? secondaryBus : primaryBus;
 
     let panner: StereoPannerNode | null = null;
     if (typeof ctx.createStereoPanner === "function") {
       panner = ctx.createStereoPanner();
       panner.pan.setValueAtTime(evt.pan, t);
-      panner.connect(masterGain);
-      panner.connect(delayNode);
+      panner.connect(targetBus);
     }
 
-    const dest: AudioNode = panner || masterGain;
+    const dest: AudioNode = panner || targetBus;
 
     if (evt.voice === "piano") {
       const osc1 = ctx.createOscillator();

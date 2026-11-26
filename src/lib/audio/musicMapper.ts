@@ -163,6 +163,7 @@ export function mapRecursionToMusic(
     velocity: 0.50,
     pan: -0.15,
     voice: "piano",
+    role: "primary",
   });
 
   // 2. PHASE-BY-PHASE MUSICAL PHRASING DRIVEN BY RECURSIVE EVENTS
@@ -225,6 +226,7 @@ export function mapRecursionToMusic(
       velocity: Number((slot.velBase * 0.88).toFixed(3)),
       pan: -0.22,
       voice: "piano",
+      role: "secondary",
     });
 
     if (slot.phase !== "A" || sIdx > 0) {
@@ -239,6 +241,7 @@ export function mapRecursionToMusic(
         velocity: Number((slot.velBase * 0.76).toFixed(3)),
         pan: -0.1,
         voice: "piano",
+        role: "secondary",
       });
     }
 
@@ -257,6 +260,7 @@ export function mapRecursionToMusic(
         velocity: 0.24,
         pan: 0,
         voice: "pad",
+        role: "secondary",
       });
     }
 
@@ -303,6 +307,7 @@ export function mapRecursionToMusic(
         velocity: Number(Math.min(0.85, slot.velBase * dynamicCurve).toFixed(3)),
         pan: Number(Math.max(-0.45, Math.min(0.45, 0.12 + b.pan * 0.35)).toFixed(2)),
         voice: "piano",
+        role: "primary",
       });
     }
   }

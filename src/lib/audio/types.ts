@@ -2,6 +2,20 @@ import { BranchEvent, RecursionResult } from "../recursion/types";
 
 export type VoiceType = "piano" | "pad" | "bell" | "pluck";
 
+export type InstrumentId =
+  | "piano"
+  | "violin"
+  | "cello"
+  | "flute"
+  | "harp"
+  | "celesta"
+  | "warm_strings"
+  | "bell";
+
+export type InstrumentRole = "primary" | "secondary";
+
+export type InstrumentLoadState = "idle" | "loading" | "ready" | "fallback";
+
 export type MusicalScale = "pentatonic" | "dorian" | "lydian" | "ambient";
 
 export type PlaybackState = "idle" | "playing" | "paused" | "stopped";
@@ -18,7 +32,8 @@ export interface MusicalEvent {
   duration: number; // in seconds
   velocity: number; // 0.0 to 1.0 (gain amplitude)
   pan: number; // -1.0 (left) to +1.0 (right)
-  voice: VoiceType; // pad, bell, pluck
+  voice: VoiceType; // piano, pad, bell, pluck
+  role?: InstrumentRole; // primary (melody/lead) vs secondary (accompaniment/harmony)
 }
 
 export interface ScaleDefinition {

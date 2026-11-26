@@ -8,6 +8,7 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     description: "Natural organic branching, gentle variation, relaxed tempo, and reflective Dorian harmonics.",
     accentColor: "emerald",
     config: {
+      patternType: "organic",
       maxDepth: 6,
       branchAngle: 24,
       initialLength: 105,
@@ -21,6 +22,10 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
       tempo: 56,
       reverb: 55,
       volume: 80,
+      primaryInstrument: "flute",
+      secondaryInstrument: "harp",
+      primaryVolume: 85,
+      secondaryVolume: 75,
     },
   },
   cosmic: {
@@ -30,6 +35,7 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     description: "Wide spatial exploration, deep branching filaments, sparkling Lydian celestial tones, and lush reverb.",
     accentColor: "cyan",
     config: {
+      patternType: "spiral",
       maxDepth: 6,
       branchAngle: 38,
       initialLength: 115,
@@ -43,6 +49,10 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
       tempo: 68,
       reverb: 75,
       volume: 80,
+      primaryInstrument: "warm_strings",
+      secondaryInstrument: "piano",
+      primaryVolume: 80,
+      secondaryVolume: 75,
     },
   },
   zen: {
@@ -52,6 +62,7 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     description: "Harmonious balanced geometry, reduced visual density, slow tranquil pacing, and pure pentatonic bells.",
     accentColor: "teal",
     config: {
+      patternType: "crystal",
       maxDepth: 5,
       branchAngle: 22,
       initialLength: 110,
@@ -65,6 +76,10 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
       tempo: 46,
       reverb: 60,
       volume: 80,
+      primaryInstrument: "piano",
+      secondaryInstrument: "celesta",
+      primaryVolume: 85,
+      secondaryVolume: 65,
     },
   },
   dream: {
@@ -74,6 +89,7 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     description: "Soft expressive curves, ethereal organic drift, and meditative 432Hz ambient chordal textures.",
     accentColor: "purple",
     config: {
+      patternType: "coral",
       maxDepth: 6,
       branchAngle: 32,
       initialLength: 112,
@@ -87,6 +103,10 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
       tempo: 50,
       reverb: 80,
       volume: 80,
+      primaryInstrument: "violin",
+      secondaryInstrument: "warm_strings",
+      primaryVolume: 85,
+      secondaryVolume: 70,
     },
   },
 };
@@ -103,6 +123,7 @@ export const PRESET_LIST: PresetDefinition[] = [
  */
 export function matchActivePreset(
   config: {
+    patternType?: string;
     maxDepth: number;
     branchAngle: number;
     initialLength: number;
@@ -122,6 +143,7 @@ export function matchActivePreset(
     const pa = preset.audio;
 
     const configMatches =
+      (pc.patternType ?? "binary") === (config.patternType ?? "binary") &&
       pc.maxDepth === config.maxDepth &&
       pc.branchAngle === config.branchAngle &&
       pc.initialLength === config.initialLength &&

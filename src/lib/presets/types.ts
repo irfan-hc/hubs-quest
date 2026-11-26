@@ -1,5 +1,5 @@
 import type { RecursionConfig } from "../recursion/types";
-import type { MusicalScale } from "../audio/types";
+import type { InstrumentId, MusicalScale } from "../audio/types";
 
 export type PresetId = "forest" | "cosmic" | "zen" | "dream";
 
@@ -15,5 +15,9 @@ export interface PresetDefinition {
     tempo: number;
     reverb: number;
     volume: number;
+    primaryInstrument: InstrumentId;
+    secondaryInstrument: InstrumentId | null;
+    primaryVolume: number;
+    secondaryVolume: number;
   };
 }

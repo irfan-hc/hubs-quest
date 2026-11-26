@@ -1,21 +1,26 @@
+import { CacheStorage, Soundfont } from "smplr";
+import { INSTRUMENT_CATALOG } from "./instruments";
 import type {
-  ActiveBranchCallback,
   Composition,
+  InstrumentId,
+  InstrumentLoadState,
   MusicalEvent,
   PlaybackState,
 } from "./types";
 
 /**
  * WebAudioSynthesizer
- * Production-ready Web Audio API procedural synthesis engine with support for:
- * - Play, Pause, Resume, Stop, Replay
- * - Synchronized active branch event tracking
- * - Smooth master gain limiting and anti-clipping
- * - Zero external dependencies
+ * Hybrid Sampled-Instrument & Web Audio Synthesis Engine:
+ * - Lazy-loads real General MIDI SoundFont instruments via `smplr` (MusyngKite)
+ * - Supports independent Primary + Secondary instruments & volumes (with disable option)
+ * - Falls back gracefully to built-in Web Audio synthesis if sample loading fails
+ * - Supports Play, Pause, Resume, Stop, Replay, live instrument switching, and 1:1 branch sync
  */
 export class WebAudioSynthesizer {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private primaryBusGain: GainNode | null = null;
+  private secondaryBusGain: GainNode | null = null;
   private warmthFilter: BiquadFilterNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
 
@@ -25,22 +30,38 @@ export class WebAudioSynthesizer {
   private delayFilter: BiquadFilterNode | null = null;
   private wetGain: GainNode | null = null;
 
-  // Active voice nodes for clean cancellation
+  // Active fallback voice nodes for clean cancellation
   private activeOscillators: OscillatorNode[] = [];
   private activeGainNodes: GainNode[] = [];
   private scheduleTimerId: NodeJS.Timeout | null = null;
 
+  // Sampled Soundfont instances (cached lazily by role + instrumentId)
+  private storage: ReturnType<typeof CacheStorage> | null = null;
+  private primaryInstrumentId: InstrumentId = "piano";
+  private secondaryInstrumentId: InstrumentId | null = "celesta";
+  private primaryVolume: number = 0.85;
+  private secondaryVolume: number = 0.65;
+
+  private primarySampler: Soundfont | null = null;
+  private secondarySampler: Soundfont | null = null;
+  private primaryLoadedId: InstrumentId | null = null;
+  private secondaryLoadedId: InstrumentId | null = null;
+  private loadGeneration: number = 0;
+
   // Playback state & timeline tracking
   private state: PlaybackState = "idle";
   private currentComposition: Composition | null = null;
-  private playbackStartTime: number = 0; // audioCtx.currentTime when playback started
-  private pausedAtSec: number = 0; // seconds elapsed into composition when paused
+  private playbackStartTime: number = 0;
+  private pausedAtSec: number = 0;
   private currentVolume: number = 0.8;
   private currentReverb: number = 0.65;
 
   // Callbacks
   private onActiveBranchesChange: ((branchIds: Set<string>) => void) | null = null;
   private onStateChange: ((state: PlaybackState) => void) | null = null;
+  private onInstrumentStatusChange:
+    | ((state: InstrumentLoadState, message: string) => void)
+    | null = null;
   private syncRafId: number | null = null;
 
   constructor() {
@@ -55,10 +76,22 @@ export class WebAudioSynthesizer {
     this.onStateChange = cb;
   }
 
+  public setOnInstrumentStatusChange(
+    cb: (state: InstrumentLoadState, message: string) => void
+  ): void {
+    this.onInstrumentStatusChange = cb;
+  }
+
   private updateState(newState: PlaybackState): void {
     this.state = newState;
     if (this.onStateChange) {
       this.onStateChange(newState);
+    }
+  }
+
+  private updateInstrumentStatus(state: InstrumentLoadState, message: string): void {
+    if (this.onInstrumentStatusChange) {
+      this.onInstrumentStatusChange(state, message);
     }
   }
 
@@ -86,7 +119,7 @@ export class WebAudioSynthesizer {
   private setupAudioGraph(): void {
     if (!this.ctx) return;
 
-    // 1. Master Output Limiter to strictly prevent digital clipping
+    // 1. Master Output Limiter
     this.limiter = this.ctx.createDynamicsCompressor();
     this.limiter.threshold.setValueAtTime(-6, this.ctx.currentTime);
     this.limiter.knee.setValueAtTime(14, this.ctx.currentTime);
@@ -95,10 +128,10 @@ export class WebAudioSynthesizer {
     this.limiter.release.setValueAtTime(0.18, this.ctx.currentTime);
     this.limiter.connect(this.ctx.destination);
 
-    // 2. Master Warmth Lowpass Filter (softens any harsh upper harmonics)
+    // 2. Master Warmth Lowpass Filter
     this.warmthFilter = this.ctx.createBiquadFilter();
     this.warmthFilter.type = "lowpass";
-    this.warmthFilter.frequency.setValueAtTime(3600, this.ctx.currentTime);
+    this.warmthFilter.frequency.setValueAtTime(4800, this.ctx.currentTime);
     this.warmthFilter.Q.setValueAtTime(0.5, this.ctx.currentTime);
     this.warmthFilter.connect(this.limiter);
 
@@ -112,23 +145,200 @@ export class WebAudioSynthesizer {
     this.delayNode.delayTime.setValueAtTime(0.42, this.ctx.currentTime);
 
     this.delayFeedback = this.ctx.createGain();
-    this.delayFeedback.gain.setValueAtTime(0.35, this.ctx.currentTime);
+    this.delayFeedback.gain.setValueAtTime(0.32, this.ctx.currentTime);
 
     this.delayFilter = this.ctx.createBiquadFilter();
     this.delayFilter.type = "lowpass";
-    this.delayFilter.frequency.setValueAtTime(1150, this.ctx.currentTime);
+    this.delayFilter.frequency.setValueAtTime(1350, this.ctx.currentTime);
 
     this.wetGain = this.ctx.createGain();
-    this.wetGain.gain.setValueAtTime(this.currentReverb * 0.42, this.ctx.currentTime);
+    this.wetGain.gain.setValueAtTime(this.currentReverb * 0.4, this.ctx.currentTime);
 
-    // Feedback loop: delay -> filter -> feedback gain -> delay
     this.delayNode.connect(this.delayFilter);
     this.delayFilter.connect(this.delayFeedback);
     this.delayFeedback.connect(this.delayNode);
-
-    // Wet return into master gain
     this.delayFilter.connect(this.wetGain);
     this.wetGain.connect(this.masterGain);
+
+    // 5. Dedicated Primary & Secondary Instrument Buses
+    this.primaryBusGain = this.ctx.createGain();
+    this.primaryBusGain.gain.setValueAtTime(this.primaryVolume, this.ctx.currentTime);
+    this.primaryBusGain.connect(this.masterGain);
+    this.primaryBusGain.connect(this.delayNode);
+
+    this.secondaryBusGain = this.ctx.createGain();
+    this.secondaryBusGain.gain.setValueAtTime(this.secondaryVolume, this.ctx.currentTime);
+    this.secondaryBusGain.connect(this.masterGain);
+    this.secondaryBusGain.connect(this.delayNode);
+  }
+
+  /**
+   * Lazily loads only the currently selected primary & secondary Soundfont instruments.
+   */
+  public async ensureInstrumentsLoaded(): Promise<void> {
+    const ctx = await this.ensureAudioContext();
+    if (!this.primaryBusGain || !this.secondaryBusGain) return;
+
+    if (!this.storage && typeof window !== "undefined") {
+      try {
+        this.storage = CacheStorage("recursive-soundscapes-sf");
+      } catch {
+        this.storage = null;
+      }
+    }
+
+    const gen = ++this.loadGeneration;
+    const tasks: Promise<void>[] = [];
+    const loadingNames: string[] = [];
+
+    if (this.primaryLoadedId !== this.primaryInstrumentId || !this.primarySampler) {
+      if (this.primarySampler) {
+        try {
+          this.primarySampler.stop();
+          this.primarySampler.disconnect();
+        } catch {}
+        this.primarySampler = null;
+        this.primaryLoadedId = null;
+      }
+      const def = INSTRUMENT_CATALOG[this.primaryInstrumentId];
+      loadingNames.push(def.name);
+      const sampler = new Soundfont(ctx, {
+        instrument: def.soundfontName,
+        kit: def.kit,
+        destination: this.primaryBusGain,
+        volume: 100,
+        ...(this.storage ? { storage: this.storage } : {}),
+      });
+      tasks.push(
+        sampler.load.then(() => {
+          if (this.loadGeneration !== gen) {
+            try {
+              sampler.disconnect();
+            } catch {}
+            return;
+          }
+          this.primarySampler = sampler;
+          this.primaryLoadedId = def.id;
+        })
+      );
+    }
+
+    if (this.secondaryInstrumentId === null) {
+      if (this.secondarySampler) {
+        try {
+          this.secondarySampler.stop();
+          this.secondarySampler.disconnect();
+        } catch {}
+        this.secondarySampler = null;
+        this.secondaryLoadedId = null;
+      }
+    } else if (
+      this.secondaryLoadedId !== this.secondaryInstrumentId ||
+      !this.secondarySampler
+    ) {
+      if (this.secondarySampler) {
+        try {
+          this.secondarySampler.stop();
+          this.secondarySampler.disconnect();
+        } catch {}
+        this.secondarySampler = null;
+        this.secondaryLoadedId = null;
+      }
+      const def = INSTRUMENT_CATALOG[this.secondaryInstrumentId];
+      loadingNames.push(def.name);
+      const sampler = new Soundfont(ctx, {
+        instrument: def.soundfontName,
+        kit: def.kit,
+        destination: this.secondaryBusGain,
+        volume: 100,
+        ...(this.storage ? { storage: this.storage } : {}),
+      });
+      tasks.push(
+        sampler.load.then(() => {
+          if (this.loadGeneration !== gen) {
+            try {
+              sampler.disconnect();
+            } catch {}
+            return;
+          }
+          this.secondarySampler = sampler;
+          this.secondaryLoadedId = def.id;
+        })
+      );
+    }
+
+    if (tasks.length === 0) {
+      this.updateInstrumentStatus("ready", "Samples Ready");
+      return;
+    }
+
+    this.updateInstrumentStatus("loading", `Loading ${loadingNames.join(" & ")}...`);
+    try {
+      await Promise.all(tasks);
+      if (this.loadGeneration === gen) {
+        const activeList = [
+          INSTRUMENT_CATALOG[this.primaryInstrumentId].name,
+          this.secondaryInstrumentId
+            ? INSTRUMENT_CATALOG[this.secondaryInstrumentId].name
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" + ");
+        this.updateInstrumentStatus("ready", `${activeList} Ready`);
+      }
+    } catch (err) {
+      console.warn("Sample loading failed, falling back to Web Audio synth:", err);
+      if (this.loadGeneration === gen) {
+        this.updateInstrumentStatus("fallback", "Using Synth Fallback (Offline)");
+      }
+    }
+  }
+
+  public async setInstruments(
+    primary: InstrumentId,
+    secondary: InstrumentId | null
+  ): Promise<void> {
+    const changed =
+      this.primaryInstrumentId !== primary ||
+      this.secondaryInstrumentId !== secondary;
+    this.primaryInstrumentId = primary;
+    this.secondaryInstrumentId = secondary;
+
+    if (!changed) return;
+
+    const wasPlaying = this.state === "playing";
+    const resumeOffset = wasPlaying ? this.getCurrentTime() : 0;
+
+    if (wasPlaying) {
+      this.stopAudioNodesOnly();
+    }
+
+    if (this.ctx) {
+      await this.ensureInstrumentsLoaded();
+    }
+
+    if (wasPlaying && this.currentComposition) {
+      this.pausedAtSec = resumeOffset;
+      this.state = "paused";
+      await this.resume();
+    }
+  }
+
+  public setPrimaryVolume(volNorm: number): void {
+    this.primaryVolume = Math.max(0, Math.min(1, volNorm));
+    if (this.ctx && this.primaryBusGain) {
+      this.primaryBusGain.gain.setValueAtTime(this.primaryVolume, this.ctx.currentTime);
+    }
+  }
+
+  public setSecondaryVolume(volNorm: number): void {
+    this.secondaryVolume = Math.max(0, Math.min(1, volNorm));
+    if (this.ctx && this.secondaryBusGain) {
+      this.secondaryBusGain.gain.setValueAtTime(
+        this.secondaryVolume,
+        this.ctx.currentTime
+      );
+    }
   }
 
   /**
@@ -140,8 +350,8 @@ export class WebAudioSynthesizer {
     onComplete?: () => void
   ): Promise<void> {
     const ctx = await this.ensureAudioContext();
+    await this.ensureInstrumentsLoaded();
 
-    // Prevent duplicate overlapping playback
     this.stopAudioNodesOnly();
 
     this.currentComposition = composition;
@@ -151,10 +361,9 @@ export class WebAudioSynthesizer {
     const now = ctx.currentTime + 0.08;
     this.playbackStartTime = now;
 
-    // Schedule events from 0.0s
     for (const evt of composition.events) {
       const scheduledStart = now + evt.startTime;
-      this.synthesizeEvent(ctx, evt, scheduledStart);
+      this.scheduleEvent(ctx, evt, scheduledStart);
     }
 
     this.startSyncLoop();
@@ -166,9 +375,6 @@ export class WebAudioSynthesizer {
     }, remainingSec * 1000);
   }
 
-  /**
-   * Pauses the current composition playback cleanly without restarting.
-   */
   public pause(): void {
     if (this.state !== "playing" || !this.ctx || !this.currentComposition) {
       return;
@@ -182,27 +388,23 @@ export class WebAudioSynthesizer {
     this.updateState("paused");
   }
 
-  /**
-   * Resumes playback from the exact paused second offset.
-   */
   public async resume(onComplete?: () => void): Promise<void> {
     if (this.state !== "paused" || !this.currentComposition) {
       return;
     }
 
     const ctx = await this.ensureAudioContext();
+    await this.ensureInstrumentsLoaded();
     this.updateState("playing");
 
     const now = ctx.currentTime + 0.06;
     this.playbackStartTime = now - this.pausedAtSec;
 
-    // Schedule remaining events whose start time >= pausedAtSec
     for (const evt of this.currentComposition.events) {
       if (evt.startTime + evt.duration > this.pausedAtSec) {
-        // If event started before pausedAtSec but sustains past it, or starts after:
         const delayOffset = Math.max(0, evt.startTime - this.pausedAtSec);
         const scheduledStart = now + delayOffset;
-        this.synthesizeEvent(ctx, evt, scheduledStart);
+        this.scheduleEvent(ctx, evt, scheduledStart);
       }
     }
 
@@ -218,9 +420,6 @@ export class WebAudioSynthesizer {
     }, remainingSec * 1000);
   }
 
-  /**
-   * Stops playback completely, resets timeline to 0, and silences all nodes.
-   */
   public stop(): void {
     this.stopAudioNodesOnly();
     this.stopSyncLoop();
@@ -228,9 +427,6 @@ export class WebAudioSynthesizer {
     this.updateState("stopped");
   }
 
-  /**
-   * Replays composition from the beginning.
-   */
   public async replay(onComplete?: () => void): Promise<void> {
     if (!this.currentComposition) return;
     this.stop();
@@ -241,6 +437,17 @@ export class WebAudioSynthesizer {
     if (this.scheduleTimerId) {
       clearTimeout(this.scheduleTimerId);
       this.scheduleTimerId = null;
+    }
+
+    if (this.primarySampler) {
+      try {
+        this.primarySampler.stop();
+      } catch {}
+    }
+    if (this.secondarySampler) {
+      try {
+        this.secondarySampler.stop();
+      } catch {}
     }
 
     const oldOscillators = this.activeOscillators;
@@ -273,9 +480,6 @@ export class WebAudioSynthesizer {
     }
   }
 
-  /**
-   * High-precision synchronization loop tracking active sounding branches.
-   */
   private startSyncLoop(): void {
     if (this.syncRafId) {
       cancelAnimationFrame(this.syncRafId);
@@ -288,7 +492,6 @@ export class WebAudioSynthesizer {
       cancelAnimationFrame(this.syncRafId);
       this.syncRafId = null;
     }
-    // Clear all branch highlights
     if (this.onActiveBranchesChange) {
       this.onActiveBranchesChange(new Set());
     }
@@ -316,45 +519,54 @@ export class WebAudioSynthesizer {
   }
 
   /**
-   * Synthesizes an individual musical event into appropriate voice timbre.
+   * Schedules a single MusicalEvent onto the selected sampled Soundfont instrument,
+   * or falls back to built-in Web Audio synthesis if samples could not be loaded.
    */
-  private synthesizeEvent(
+  private scheduleEvent(
     ctx: AudioContext,
     evt: MusicalEvent,
     startTime: number
   ): void {
-    if (!this.masterGain) return;
+    const role = evt.role ?? "primary";
+
+    // If secondary instrument is disabled, skip secondary-only accompaniment notes
+    if (role === "secondary" && this.secondaryInstrumentId === null) {
+      return;
+    }
+
+    const sampler =
+      role === "secondary" ? this.secondarySampler : this.primarySampler;
+
+    if (sampler) {
+      const midiVelocity = Math.max(12, Math.min(120, Math.round(evt.velocity * 115)));
+      sampler.start({
+        note: evt.pitch,
+        velocity: midiVelocity,
+        time: startTime,
+        duration: Math.max(0.4, evt.duration),
+      });
+      return;
+    }
+
+    // Fallback to built-in synthesis if Soundfont samples failed to load
+    const targetBus =
+      role === "secondary"
+        ? this.secondaryBusGain || this.masterGain
+        : this.primaryBusGain || this.masterGain;
+    if (!targetBus) return;
 
     let panner: StereoPannerNode | null = null;
     if (typeof ctx.createStereoPanner === "function") {
       panner = ctx.createStereoPanner();
       panner.pan.setValueAtTime(evt.pan, startTime);
-      panner.connect(this.masterGain);
-      if (this.delayNode) {
-        panner.connect(this.delayNode);
-      }
+      panner.connect(targetBus);
     }
 
-    const outputDestination: AudioNode = panner || this.masterGain;
-
-    if (evt.voice === "piano") {
-      this.renderPianoVoice(ctx, evt, startTime, outputDestination);
-    } else if (evt.voice === "pad") {
-      this.renderPadVoice(ctx, evt, startTime, outputDestination);
-    } else if (evt.voice === "bell") {
-      this.renderBellVoice(ctx, evt, startTime, outputDestination);
-    } else {
-      this.renderPluckVoice(ctx, evt, startTime, outputDestination);
-    }
+    const dest: AudioNode = panner || targetBus;
+    this.renderFallbackSynthVoice(ctx, evt, startTime, dest);
   }
 
-  /**
-   * Acoustic-style synthesized piano voice:
-   * - Multi-partial string model (detuned fundamental + 2x octave + subtle 3x harmonic)
-   * - Velocity-sensitive hammer lowpass filter envelope (soft notes stay warm, intense notes bloom)
-   * - Rounded hammer attack + natural two-stage string decay
-   */
-  private renderPianoVoice(
+  private renderFallbackSynthVoice(
     ctx: AudioContext,
     evt: MusicalEvent,
     t: number,
@@ -362,93 +574,21 @@ export class WebAudioSynthesizer {
   ): void {
     const osc1 = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
-    const osc3 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    const gain2 = ctx.createGain();
-    const gain3 = ctx.createGain();
     const filter = ctx.createBiquadFilter();
-    const masterNoteGain = ctx.createGain();
+    const gain = ctx.createGain();
 
     osc1.type = "sine";
     osc2.type = "triangle";
-    osc3.type = "sine";
-
     osc1.frequency.setValueAtTime(evt.frequency, t);
     osc2.frequency.setValueAtTime(evt.frequency * 2.0006, t);
-    osc3.frequency.setValueAtTime(evt.frequency * 3.0, t);
-
-    // Partial balance
-    gain1.gain.setValueAtTime(0.76, t);
-    gain2.gain.setValueAtTime(0.22 + evt.velocity * 0.14, t);
-    gain3.gain.setValueAtTime(0.04 + evt.velocity * 0.08, t);
-
-    // Velocity-coupled hammer brightness lowpass
-    const brightFreq = Math.min(3400, evt.frequency * (2.2 + evt.velocity * 3.6));
-    const warmFreq = Math.max(240, Math.min(1400, evt.frequency * 1.55));
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(brightFreq, t);
-    filter.frequency.exponentialRampToValueAtTime(warmFreq, t + 0.42);
-    filter.Q.setValueAtTime(0.5, t);
-
-    const dur = Math.max(evt.duration, 1.4);
-    const attack = evt.velocity < 0.4 ? 0.022 : 0.013;
-    const peakGain = evt.velocity * 0.44;
-
-    masterNoteGain.gain.setValueAtTime(0.0001, t);
-    masterNoteGain.gain.linearRampToValueAtTime(peakGain, t + attack);
-    masterNoteGain.gain.exponentialRampToValueAtTime(peakGain * 0.48, t + Math.min(0.45, dur * 0.3));
-    masterNoteGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-
-    osc1.connect(gain1);
-    osc2.connect(gain2);
-    osc3.connect(gain3);
-    gain1.connect(filter);
-    gain2.connect(filter);
-    gain3.connect(filter);
-    filter.connect(masterNoteGain);
-    masterNoteGain.connect(dest);
-
-    osc1.start(t);
-    osc2.start(t);
-    osc3.start(t);
-    osc1.stop(t + dur + 0.08);
-    osc2.stop(t + dur + 0.08);
-    osc3.stop(t + dur + 0.08);
-
-    this.activeOscillators.push(osc1, osc2, osc3);
-    this.activeGainNodes.push(masterNoteGain);
-  }
-
-  private renderPadVoice(
-    ctx: AudioContext,
-    evt: MusicalEvent,
-    t: number,
-    dest: AudioNode
-  ): void {
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    // Warm detuned sine + soft triangle blend
-    osc1.type = "sine";
-    osc2.type = "triangle";
-
-    osc1.frequency.setValueAtTime(evt.frequency, t);
-    osc2.frequency.setValueAtTime(evt.frequency * 1.0018, t);
 
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(Math.min(evt.frequency * 2.4, 880), t);
-    filter.Q.setValueAtTime(0.4, t);
+    filter.frequency.setValueAtTime(Math.min(3200, evt.frequency * 3.0), t);
 
-    const dur = Math.max(evt.duration, 1.8);
-    const attack = Math.min(0.65, dur * 0.25);
-    const releaseStart = Math.max(attack + 0.1, dur - Math.min(1.1, dur * 0.35));
-    const peakGain = evt.velocity * 0.38;
-
+    const dur = Math.max(evt.duration, 1.0);
+    const peakGain = evt.velocity * 0.36;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(peakGain, t + attack);
-    gain.gain.linearRampToValueAtTime(peakGain * 0.78, t + releaseStart);
+    gain.gain.linearRampToValueAtTime(peakGain, t + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
 
     osc1.connect(filter);
@@ -458,100 +598,10 @@ export class WebAudioSynthesizer {
 
     osc1.start(t);
     osc2.start(t);
-    osc1.stop(t + dur + 0.12);
-    osc2.stop(t + dur + 0.12);
+    osc1.stop(t + dur + 0.08);
+    osc2.stop(t + dur + 0.08);
 
     this.activeOscillators.push(osc1, osc2);
-    this.activeGainNodes.push(gain);
-  }
-
-  private renderBellVoice(
-    ctx: AudioContext,
-    evt: MusicalEvent,
-    t: number,
-    dest: AudioNode
-  ): void {
-    const oscFundamental = ctx.createOscillator();
-    const oscHarmonic = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const gainFund = ctx.createGain();
-    const gainHarm = ctx.createGain();
-
-    // Rounded warm bell: pure sine fundamental + gentle 2.0x octave overtone (no harsh metallic partials)
-    oscFundamental.type = "sine";
-    oscHarmonic.type = "sine";
-
-    oscFundamental.frequency.setValueAtTime(evt.frequency, t);
-    oscHarmonic.frequency.setValueAtTime(evt.frequency * 2.0, t);
-
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(Math.min(evt.frequency * 3.5, 2400), t);
-
-    const dur = Math.max(evt.duration, 1.1);
-    const peakGain = evt.velocity * 0.36;
-
-    gainFund.gain.setValueAtTime(0.0001, t);
-    gainFund.gain.linearRampToValueAtTime(peakGain, t + 0.032);
-    gainFund.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-
-    gainHarm.gain.setValueAtTime(0.0001, t);
-    gainHarm.gain.linearRampToValueAtTime(peakGain * 0.14, t + 0.025);
-    gainHarm.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.48);
-
-    oscFundamental.connect(gainFund);
-    oscHarmonic.connect(gainHarm);
-    gainFund.connect(filter);
-    gainHarm.connect(filter);
-    filter.connect(dest);
-
-    oscFundamental.start(t);
-    oscHarmonic.start(t);
-    oscFundamental.stop(t + dur + 0.08);
-    oscHarmonic.stop(t + dur + 0.08);
-
-    this.activeOscillators.push(oscFundamental, oscHarmonic);
-    this.activeGainNodes.push(gainFund, gainHarm);
-  }
-
-  private renderPluckVoice(
-    ctx: AudioContext,
-    evt: MusicalEvent,
-    t: number,
-    dest: AudioNode
-  ): void {
-    // Soft felt-mallet tone: sine + muted triangle through warm lowpass
-    const oscSine = ctx.createOscillator();
-    const oscTri = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const gain = ctx.createGain();
-
-    oscSine.type = "sine";
-    oscTri.type = "triangle";
-    oscSine.frequency.setValueAtTime(evt.frequency, t);
-    oscTri.frequency.setValueAtTime(evt.frequency, t);
-
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(Math.min(evt.frequency * 2.6, 2200), t);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(evt.frequency * 1.05, 180), t + 0.35);
-
-    const dur = Math.max(evt.duration, 0.75);
-    const peakGain = evt.velocity * 0.3;
-
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(peakGain, t + 0.025);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-
-    oscSine.connect(filter);
-    oscTri.connect(filter);
-    filter.connect(gain);
-    gain.connect(dest);
-
-    oscSine.start(t);
-    oscTri.start(t);
-    oscSine.stop(t + dur + 0.08);
-    oscTri.stop(t + dur + 0.08);
-
-    this.activeOscillators.push(oscSine, oscTri);
     this.activeGainNodes.push(gain);
   }
 
@@ -565,7 +615,7 @@ export class WebAudioSynthesizer {
   public setReverb(reverbNorm: number): void {
     this.currentReverb = Math.max(0, Math.min(1, reverbNorm));
     if (this.ctx && this.wetGain) {
-      this.wetGain.gain.setValueAtTime(this.currentReverb * 0.45, this.ctx.currentTime);
+      this.wetGain.gain.setValueAtTime(this.currentReverb * 0.4, this.ctx.currentTime);
     }
   }
 

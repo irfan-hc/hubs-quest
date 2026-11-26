@@ -55,3 +55,50 @@
 - Compacted `Header.tsx` (`h-11`), `PresetSelector.tsx` (single-row horizontal strip with `w-8 h-8` thumbnails), and `VisualizationPanel.tsx` padding, and narrowed the right inspector dock in `src/app/page.tsx` (`lg:w-[290px] xl:w-[320px]`), expanding the `<canvas>` to `902×690` at `1280×900` and `1062×690` at `1440×900`.
 - Restyled all side-panel action buttons in `PlaybackPanel.tsx` and `ParameterPanel.tsx` in a monochrome black-and-white theme (`Play Soundscape` / `Resume` in solid white with black text; `Pause`, `Stop`, `Replay`, `Regenerate`, `Export WAV`, `Randomize`, and `Reset to Default` in black with white text and crisp monochrome borders) and shortened `Ambient Space Reverb` to `Space Reverb`.
 - Verified TypeScript (`0` errors) and live browser `Play` → `Pause` → `Stop` transitions with `0` console errors.
+
+---
+
+## Follow-Up 5 — Velvet Frequency Theme, Highlighted Range Labels & Non-White Zen Crystal
+
+### Prompt
+> "make the texts like Less detail (1)
+> More detail (9) more highlighted in the whole page . and do the colour theme according to the image i gave you , and zen preset the design is white when i touch the tempo i changes colour , remove the while clour from the beginning" *(accompanied by a Velvet Frequency burgundy-plum & rose-gold UI screenshot)*
+
+### Response & Changes Applied
+- Applied the Velvet Frequency burgundy-plum & rose-gold palette across `globals.css`, `Header.tsx`, `PresetSelector.tsx`, `VisualizationPanel.tsx`, `PlaybackPanel.tsx`, and `ParameterPanel.tsx`.
+- Highlighted all range endpoint captions (`Less detail (1)` / `More detail (9)`, `Narrower (12°)` / `Wider (70°)`, `Slower growth (0.45)` / `Faster growth (0.85)`, `More regular (0%)` / `More random (60%)`) as crisp `#F5DFD1` pill badges on `#26151C`.
+- Updated `zen` in `canvasRenderer.ts` to use warm rose-gold, soft ice-cyan, and plum-rose instead of stark white from the start, and added `lastPresetThemeRef` in `VisualizationPanel.tsx` so touching `Tempo` or sliders preserves the active preset's canvas palette instead of flipping colors when `activePreset` becomes `Custom`.
+
+---
+
+## Follow-Up 6 — Keep Black & White Buttons and Make Icons & Slider Borders More Visible
+
+### Prompt
+> "keep the buttond blackk and white theme , make every icone and sliders border more visibal"
+
+### Response & Changes Applied
+- Restored monochrome black-and-white styling on all action buttons (`Play Soundscape` / `Resume` in white with black text; `Pause`, `Stop`, `Replay`, `Regenerate`, `Export WAV`, `Reset to Preset Instruments`, `Randomize`, `Reset to Default`, and viewport zoom/reset/replay buttons in black with white text and borders).
+- Brightened control icons (`text-white`, `strokeWidth="2.2"` / `"2.4"`) and added crisp `border-white/45` borders to all slider tracks and dropdowns inside the Velvet Frequency theme.
+- Verified TypeScript (`0` errors) and live browser rendering (`0` console errors, `0` 404s).
+
+---
+
+## Follow-Up 7 — Add Concise Descriptions Over Slider Captions
+
+### Prompt
+> "can u add little description over the slider captions of what they do and also do the steps i asked in previous promt"
+
+### Response & Changes Applied
+- Added concise 1-line descriptions above every slider in `ParameterPanel.tsx` (`Recursion Depth`, `Branching Divergence Angle`, `Growth / Decay Ratio`, `Randomness / Drift`) and `PlaybackPanel.tsx` (`Tempo`, `Master Volume`, `Space Reverb`, `Primary Vol`, `Secondary Vol`).
+- Re-ran TypeScript (`npx.cmd tsc --noEmit`), `scripts/verify-final-audit.ts`, and live browser verification (`0` console errors, `0` 404s).
+
+---
+
+## Follow-Up 8 — Move Slider Descriptions to Hover Tooltips
+
+### Prompt
+> "not writting them under the caption , make them appear when cursor goes over them"
+
+### Response & Changes Applied
+- Removed the static inline description text below each slider label in `ParameterPanel.tsx` and `PlaybackPanel.tsx` and converted all 9 slider descriptions (`Recursion Depth`, `Branching Divergence Angle`, `Growth / Decay Ratio`, `Randomness / Drift`, `Tempo`, `Master Volume`, `Space Reverb`, `Primary Vol`, `Secondary Vol`) into hover-only tooltips (`group-hover:opacity-100`).
+- Re-ran `npx.cmd tsc --noEmit` (`0` errors) and live browser hover verification (`0` console errors, `0` 404s).

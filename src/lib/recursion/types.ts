@@ -7,7 +7,16 @@ export interface Point2D {
   y: number;
 }
 
+export type RecursionPatternType =
+  | "binary"
+  | "organic"
+  | "crystal"
+  | "coral"
+  | "spiral";
+
 export interface RecursionConfig {
+  /** Recursion topology mode (defaults to "binary" for backward compatibility). */
+  patternType?: RecursionPatternType;
   /** Maximum recursion depth (0 = trunk only). Clamped to [0, 10] for safety. */
   maxDepth: number;
   /** Branching angle offset in degrees (e.g., 25 degrees). */

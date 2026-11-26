@@ -3,16 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --background: #06060A;
-  --foreground: #F1F5F9;
+  --background: #12080D;
+  --foreground: #F7EDE6;
 }
 
 body {
   color: var(--foreground);
   background-color: var(--background);
   background-image:
-    radial-gradient(ellipse 80% 35% at 50% 0%, rgba(255, 106, 0, 0.12), transparent 70%),
-    radial-gradient(ellipse 60% 40% at 85% 15%, rgba(255, 140, 42, 0.06), transparent 65%);
+    radial-gradient(ellipse 75% 45% at 85% 25%, rgba(138, 46, 78, 0.24), transparent 70%),
+    radial-gradient(ellipse 70% 40% at 20% 0%, rgba(212, 149, 114, 0.10), transparent 65%);
   min-height: 100vh;
   overflow-x: hidden;
   font-feature-settings: "rlig" 1, "calt" 1;
@@ -20,7 +20,7 @@ body {
 
 /* Accessible focus visible styles */
 *:focus-visible {
-  outline: 2px solid #FF7A1A;
+  outline: 2px solid #D49572;
   outline-offset: 2px;
 }
 
@@ -31,16 +31,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #08080D;
+  background: #140A0F;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2B1E17;
+  background: #3D232C;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #FF6A00;
+  background: #D49572;
 }
 
 /* Accessibility: Respect user reduced motion preferences */

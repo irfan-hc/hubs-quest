@@ -1,38 +1,49 @@
 # Recursive Soundscapes
 
-An interactive creative-coding web application that transforms a deterministic recursive branching algorithm into an evolving **Recursive Harmonic Sculpture** and a **4-Phase Progressive Piano Composition**, complete with real-time audio-visual synchronization and 16-bit Stereo PCM WAV export.
+An interactive creative-coding web application that transforms deterministic recursive algorithms into evolving generative visualizations and a **4-Phase Progressive Musical Composition** using real General MIDI SoundFont sampled instruments, 1:1 audio-visual branch synchronization, and 16-bit Stereo PCM WAV export.
 
-> **Live Demo:** `[Deployment URL Placeholder — Add live link after deployment]`
+> **Live Demo:** `[Deployment Link Placeholder — Add live URL after deployment]`
 
 ---
 
 ## Features
 
-- **Deterministic Recursion Engine (`src/lib/recursion/branchingEngine.ts`):**
-  - Mulberry32 PRNG-seeded recursive generator producing `BranchEvent` trees with configurable **Depth** (`1–9`), **Branching Divergence Angle** (`12°–70°`), **Growth/Decay Ratio** (`0.45–0.85`), **Randomness/Drift** (`0–60%`), and **Seed**.
-- **Preset-Specific Generative Visualizations (`src/lib/visualization/canvasRenderer.ts`):**
-  - **Zen:** 6-fold **Enchanted Snow Crystal Formation** projected from Stage 2 recursive branches with a 5-stage frost growth sequence on a midnight winter backdrop.
-  - **Forest:** **Enchanted Forest Sculpture** with curved organic spirals, leaf/blossom clusters, warm sunlight haze, and floating pollen motes.
-  - **Cosmic:** **Cosmic Harmonic Sculpture** with translucent lotus petals, concentric orbital rings, and deep-space illumination.
-  - **Dream:** **Dream Crystalline Sculpture** with faceted diamond shards and soft lavender/pink mist.
-- **4-Phase Progressive Piano Composition (`src/lib/audio/musicMapper.ts` & `audioEngine.ts`):**
-  - Maps recursion depth, branch angles, lengths, creation order, and `branch.id` into a 4-phase emotional arc (**Phase A** peaceful opening → **Phase B** melodic/arpeggio development → **Phase C** fuller voicings & climax → **Phase D** gentle tonic resolution).
-  - Synthesizes a multi-partial acoustic-style piano voice with velocity-coupled lowpass hammer filtering, natural string decay, and warm ambient delay.
-- **Interactive Studio Workspace:**
-  - Full-width desktop `100vh` layout keeping the simulation canvas visible while adjusting any control in the right inspector dock.
-  - Drag-to-pan, `Zoom In` / `Zoom Out` / `Ctrl+Scroll` zoom, `Reset View`, `Replay`, and 1:1 `Sync: Active` branch highlighting.
+- **5 Recursive Pattern Modes (`src/lib/recursion/branchingEngine.ts`):**
+  - `crystal`: Genuine 6-fold hexagonal recursive symmetry (`Zen Snow Crystal`)
+  - `organic`: Asymmetric trunk continuation + variable lateral shoots (`Enchanted Forest Sculpture`)
+  - `spiral`: 3-arm golden-angle / logarithmic spiral with nested offshoots (`Cosmic Harmonic Sculpture`)
+  - `coral`: Irregular clustered reef-like branching (`Dream Crystalline Sculpture`)
+  - `binary`: Classic symmetric binary tree (`Binary` fallback mode)
+  - Configurable **Recursion Depth** (`1–9`), **Branching Divergence Angle** (`12°–70°`), **Growth/Decay Ratio** (`0.45–0.85`), **Randomness/Drift** (`0–60%`), and deterministic **Mulberry32 PRNG Seed**.
+
+- **4 Curated Presets (`src/lib/presets/presets.ts`):**
+  - **Zen Snow Crystal:** `crystal` pattern · `C Major Pentatonic` (`46 BPM`) · **Soft Piano + Celesta**
+  - **Enchanted Forest Sculpture:** `organic` pattern · `Dorian Twilight` (`56 BPM`) · **Flute + Harp**
+  - **Cosmic Harmonic Sculpture:** `spiral` pattern · `Lydian Celestial` (`68 BPM`) · **Warm Strings + Soft Piano**
+  - **Dream Crystalline Sculpture:** `coral` pattern · `Ambient 432Hz Major 7th` (`50 BPM`) · **Violin + Warm Strings**
+
+- **Customizable Sampled Instrument System (`src/lib/audio/instruments.ts` & `audioEngine.ts`):**
+  - Powered by [`smplr`](https://github.com/danigb/smplr) (`MIT`) and **MusyngKite General MIDI SoundFont** (`CC BY-SA 3.0`), lazily loaded and browser-cached with automatic Web Audio synthesis fallback.
+  - **8 Supported Instruments:** `Soft Piano`, `Violin`, `Cello`, `Flute`, `Harp`, `Celesta`, `Warm Strings`, and `Bell`.
+  - Independent **Primary Instrument** + **Primary Volume**, **Secondary Instrument** (`None (Disabled)` option) + **Secondary Volume**, and **Reset to Preset Instruments**.
+
+- **4-Phase Progressive Composition & Playback (`src/lib/audio/musicMapper.ts` & `PlaybackPanel.tsx`):**
+  - Maps `BranchEvent` depth, angle, length, creation order, pan, and `branch.id` into a 4-phase arc (**Peaceful Opening** → **Musical Development** → **Emotional Intensity** → **Release & Resolution**).
+  - Full transport controls: **Play Soundscape**, **Pause**, **Resume**, **Stop**, **Replay**, **Regenerate**, **Harmonic Scale**, **Tempo** (`35–110 BPM`), **Master Volume**, and **Space Reverb**.
+  - **1:1 Branch Synchronization:** Active sounding branches illuminate in real time on the canvas (`Sounding (N)` / `Sync: Active`).
+
 - **Real WAV Audio Export (`src/lib/audio/wavExporter.ts`):**
-  - Offline rendering via `OfflineAudioContext` (with pure-TypeScript DSP fallback) to 16-bit Stereo PCM 44.1 kHz `.wav` download.
+  - Exports the active composition and selected primary/secondary instruments into a 16-bit Stereo PCM 44.1 kHz `.wav` file via `OfflineAudioContext` (with pure-TypeScript DSP fallback).
+  - *(Note: WebM/video export is not implemented; only WAV audio export is provided.)*
 
 ---
 
-## Technologies Used
+## Technology Stack
 
 - **Next.js 14** (App Router) & **React 18**
-- **TypeScript**
-- **Tailwind CSS**
+- **TypeScript** & **Tailwind CSS**
 - **HTML5 2D Canvas API**
-- **Web Audio API** (`AudioContext`, `OfflineAudioContext`, `BiquadFilterNode`, `DynamicsCompressorNode`, `DelayNode`, `StereoPannerNode`)
+- **Web Audio API** & **`smplr`** (MusyngKite SoundFont)
 
 ---
 
@@ -49,7 +60,7 @@ npm run dev
 ```
 Open `http://localhost:3000` in your browser.
 
-### Production Build & Verification
+### Type-Check, Build & Verification
 ```bash
 npx tsc --noEmit
 npm run build
@@ -58,15 +69,14 @@ node --experimental-strip-types scripts/verify-final-audit.ts
 
 ---
 
-## Usage Instructions
+## Controls & Usage
 
-1. **Choose a Preset** (`Zen`, `Forest`, `Cosmic`, or `Dream`) in the top strip to load a curated recursion + musical configuration.
-2. **Customize Parameters** in the right-hand **Recursion Controls** panel (`Recursion Depth`, `Branching Divergence Angle`, `Growth / Decay Ratio`, `Randomness / Drift`, or `Randomize` seed).
-3. **Play & Control Audio** in **Audio & Playback**:
-   - Click **Play Soundscape** to start the progressive piano composition and watch active crystal/sculpture elements pulse in sync.
-   - Use **Pause** / **Resume**, **Stop**, **Replay**, **Regenerate**, **Harmonic Scale**, **Tempo**, **Master Volume**, and **Space Reverb**.
-4. **Navigate the Canvas:** Drag to pan, use **Zoom In** / **Zoom Out** (or `Ctrl/Cmd + Scroll`), and click **Reset View** or **Replay** anytime.
-5. **Export Audio:** Click **Export WAV** to render and download `recursive-soundscapes-seed-<seed>.wav`.
+1. **Select a Preset** (`Zen`, `Forest`, `Cosmic`, or `Dream`) in the top strip.
+2. **Adjust Recursion Controls** in the right dock (**Recursion Pattern**, **Depth**, **Angle**, **Growth/Decay Ratio**, **Randomness/Drift**, **Randomize** seed, or **Reset to Default**).
+3. **Customize Music Instruments** in **Audio & Playback** (**Primary Instrument** & volume, **Secondary Instrument** or `None (Disabled)` & volume, **Reset to Preset Instruments**).
+4. **Play & Shape Audio** with **Play Soundscape** / **Pause** / **Resume** / **Stop** / **Replay** / **Regenerate**, **Harmonic Scale**, **Tempo**, **Master Volume**, and **Space Reverb**.
+5. **Navigate the Canvas:** Drag to pan, **Zoom In** / **Zoom Out** (or `Ctrl/Cmd + Scroll`), **Reset View**, or **Replay** formation.
+6. **Export Audio:** Click **Export WAV** to render and download `recursive-soundscapes-seed-<seed>.wav`.
 
 ---
 
@@ -77,13 +87,13 @@ node --experimental-strip-types scripts/verify-final-audit.ts
 ├── public/                  # Pre-rendered demo WAV assets
 ├── scripts/                 # Automated verification & audit scripts
 ├── src/
-│   ├── app/                 # Next.js App Router (page.tsx, layout.tsx, globals.css)
+│   ├── app/                 # Next.js App Router (page.tsx, layout.tsx, globals.css, icon.svg)
 │   ├── components/          # Header & studio panels (PresetSelector, VisualizationPanel, PlaybackPanel, ParameterPanel)
 │   └── lib/
-│       ├── audio/           # musicMapper.ts, audioEngine.ts, wavExporter.ts, types.ts
+│       ├── audio/           # instruments.ts, musicMapper.ts, audioEngine.ts, wavExporter.ts, types.ts
 │       ├── presets/         # 4 preset definitions & active-preset matching
-│       ├── recursion/       # Stage 2 branchingEngine.ts & types.ts
-│       └── visualization/   # canvasRenderer.ts (Harmonic Sculptures & Zen Snow Crystal)
+│       ├── recursion/       # branchingEngine.ts (5 pattern modes) & types.ts
+│       └── visualization/   # canvasRenderer.ts
 ├── package.json
 └── tsconfig.json
 ```
@@ -92,4 +102,4 @@ node --experimental-strip-types scripts/verify-final-audit.ts
 
 ## AI Usage & Documentation
 
-All AI prompts, architectural decisions, refinements, and verification results are documented in [`ai-documentation/`](./ai-documentation/) and indexed in [`ai-documentation/AI_USAGE_INDEX.md`](./ai-documentation/AI_USAGE_INDEX.md).
+All AI prompts, architectural decisions, debugging logs, and verification results are preserved in [`ai-documentation/`](./ai-documentation/) and indexed in [`ai-documentation/AI_USAGE_INDEX.md`](./ai-documentation/AI_USAGE_INDEX.md).
